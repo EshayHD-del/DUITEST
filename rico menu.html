@@ -1,0 +1,613 @@
+<script lang="ts">
+	import { fade } from 'svelte/transition';
+	import { onMount } from 'svelte';
+
+	let current = 0;
+	let activeMenu: any[] = [];
+	let showing = false;
+	let itemRefs: HTMLElement[] = [];
+
+	// Text input dialog state
+	let showTextInput = false;
+	let textInputValue = '';
+	let textInputQuestion = '';
+	let textInputPlaceholder = '';
+	let textInputMaxLength = 100;
+
+	// Keybind system state
+	let showKeybindPrompt = false;
+	let keybindFeatureName = '';
+	let showKeybindSelector = false;
+
+	type Notification = {
+		id: number;
+		message: string;
+		type: 'info' | 'success' | 'warn' | 'error';
+	};
+
+	let notifications: Notification[] = [];
+	let position: string = 'left';
+
+	const showNotification = (message: string, type: Notification['type']) => {
+		const id = Date.now();
+		notifications = [...notifications, { id, message, type }];
+		setTimeout(() => {
+			notifications = notifications.filter((n) => n.id !== id);
+		}, 4000);
+	};
+
+	// Extract bindable features from menu
+	const getBindableFeatures = (menu: any[]): any[] => {
+		let features: any[] = [];
+		
+		const extractFeatures = (items: any[]) => {
+			items.forEach(item => {
+				if (item.canBind && item.bindName) {
+					features.push({
+						name: item.bindName,
+						label: item.label,
+						callback: item.onConfirm
+					});
+				}
+				if (item.submenu) {
+					extractFeatures(item.submenu);
+				}
+			});
+		};
+		
+		extractFeatures(menu);
+		return features;
+	};
+
+	onMount(() => {
+		// Ensure the DUI environment is ready
+		return () => {
+			// Cleanup if needed
+		};
+	});
+
+	window.addEventListener('message', (event) => {
+		const data = event.data;
+		const action = data.action;
+
+		console.log('Received message:', action, data); // Debug log
+
+		if (action == 'setCurrent') {
+			current = data.current - 1;
+			activeMenu = data.menu;
+			showing = true;
+
+			setTimeout(() => {
+				itemRefs[current]?.scrollIntoView({
+					behavior: 'smooth',
+					block: 'nearest'
+				});
+			}, 100);
+		} else if (action == 'setVisible') {
+			showing = data.visible;
+
+			if (showing) {
+				setTimeout(() => {
+					itemRefs[current]?.scrollIntoView({
+						behavior: 'smooth',
+						block: 'nearest'
+					});
+				}, 100);
+			}
+		} else if (action == 'position') {
+			position = data.position;
+		} else if (action == 'notify') {
+			showNotification(data.message, data.type || 'info');
+		} else if (action == 'openTextInput') {
+			console.log('Opening text input with:', data); // Debug log
+			textInputValue = data.value || '';
+			textInputQuestion = data.question || 'Enter text:';
+			textInputPlaceholder = data.placeholder || 'Type here...';
+			textInputMaxLength = data.maxLength || 100;
+			showTextInput = true;
+		} else if (action == 'updateTextInput') {
+			console.log('Updating text input:', data); // Debug log
+			textInputValue = data.value || '';
+		} else if (action == 'closeTextInput') {
+			console.log('Closing text input'); // Debug log
+			showTextInput = false;
+			textInputValue = '';
+			textInputQuestion = '';
+			textInputPlaceholder = '';
+			textInputMaxLength = 100;
+		} else if (action == 'showKeybindPrompt') {
+			console.log('Showing keybind prompt for:', data.feature);
+			keybindFeatureName = data.feature || '';
+			showKeybindPrompt = true;
+		} else if (action == 'hide vuestroKeybindPrompt') {
+			console.log('Hiding keybind prompt');
+			showKeybindPrompt = false;
+			keybindFeatureName = '';
+		} else if (action == 'showKeybindSelector') {
+			console.log('Showing keybind selector');
+			showKeybindSelector = true;
+		} else if (action == 'requestClipboard') {
+			// Handle clipboard request - this is safer than trying to access clipboard directly
+			try {
+				navigator.clipboard.readText().then(text => {
+					// Send clipboard data back to Lua (if needed)
+					console.log('Clipboard data:', text);
+				}).catch(err => {
+					console.log('Clipboard access denied or failed:', err);
+				});
+			} catch (error) {
+				console.log('Clipboard API not available:', error);
+			}
+		}
+	});
+
+	// Handle keybind selector item click
+	const selectKeybindFeature = (feature: any) => {
+		showKeybindSelector = false;
+		// This would trigger the keybind mode for the selected feature
+		// The Lua side would handle the actual keybind assignment
+		console.log('Selected feature for keybind:', feature.name);
+		
+		// Notify Lua about the selection (you'd need to implement this messaging)
+		// For now, we'll just show a notification
+		showNotification(`Press F9 again and navigate to "${feature.label}" to set its keybind`, 'info');
+	};
+</script>
+
+<svelte:head>
+	<script src="https://unpkg.com/@phosphor-icons/web"></script>
+</svelte:head>
+
+<style>
+	* {
+		background: none;
+	}
+
+	/* Only include used CSS classes */
+	.hide-scrollbar {
+		overflow-y: auto;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+	}
+	.hide-scrollbar::-webkit-scrollbar {
+		display: none;
+	}
+
+	.notification-container {
+		position: absolute;
+		top: 1.75vh;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1vh;
+		z-index: 9999;
+		pointer-events: none;
+	}
+
+	.notification {
+		min-width: 25vh;
+		max-width: 50vh;
+		background-color: #000000e5;
+		color: white;
+		padding: 1.2vh 2vh;
+		border-radius: 0.75vh;
+		font-size: 1.3vh;
+		font-family: 'Segoe UI', sans-serif;
+		box-shadow: 0 0.3vh 1vh rgba(0, 0, 0, 0.5);
+		text-align: center;
+		pointer-events: auto;
+	}
+
+	.notification.info { border: 0.1vh solid #3498db; }
+	.notification.success { border: 0.1vh solid #2ecc71; }
+	.notification.warn { border: 0.1vh solid #f39c12; }
+	.notification.error { border: 0.1vh solid #e74c3c; }
+
+	.text-input-container {
+		position: fixed;
+		bottom: 10vh;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 10000;
+		width: 35vh;
+	}
+
+	.text-input-box {
+		background: #000000e5;
+		border: 0.2vh solid #e74c3c;
+		border-radius: 1vh;
+		padding: 1.5vh;
+		color: white;
+		font-family: 'Segoe UI', sans-serif;
+		box-shadow: 0 0.5vh 2vh rgba(0, 0, 0, 0.7);
+	}
+
+	.text-input-title {
+		font-size: 1.2vh;
+		color: #e74c3c;
+		margin-bottom: 0.8vh;
+		text-align: center;
+	}
+
+	.text-input-field {
+		background: rgba(255, 255, 255, 0.1);
+		border: 0.1vh solid rgba(255, 255, 255, 0.2);
+		border-radius: 0.5vh;
+		padding: 1vh;
+		color: white;
+		font-size: 1.3vh;
+		width: 100%;
+		min-height: 2vh;
+		font-family: 'Consolas', 'Monaco', monospace;
+		margin-bottom: 1vh;
+		position: relative;
+		white-space: nowrap;
+		overflow: hidden;
+	}
+
+	.text-content {
+		display: inline-block;
+		position: relative;
+	}
+
+	.cursor {
+		display: inline-block;
+		width: 0.1vh;
+		height: 1.4vh;
+		background-color: white;
+		margin-left: 0.1vh;
+		animation: blink 1s infinite;
+		vertical-align: text-bottom;
+	}
+
+	@keyframes blink {
+		0%, 50% { opacity: 1; }
+		51%, 100% { opacity: 0; }
+	}
+
+	.text-input-info {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-size: 1vh;
+		color: #888;
+	}
+
+	.text-input-hint {
+		font-size: 1vh;
+		color: #666;
+		text-align: center;
+		margin-top: 0.5vh;
+	}
+
+	.placeholder-text {
+		color: #666;
+		font-style: italic;
+	}
+
+	/* Keybind prompt styles */
+	.keybind-prompt-container {
+		position: fixed;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		z-index: 10001;
+		width: 40vh;
+	}
+
+	.keybind-prompt-box {
+		background: #000000f0;
+		border: 0.2vh solid #f39c12;
+		border-radius: 1vh;
+		padding: 2vh;
+		color: white;
+		font-family: 'Segoe UI', sans-serif;
+		box-shadow: 0 1vh 3vh rgba(0, 0, 0, 0.8);
+		text-align: center;
+	}
+
+	.keybind-prompt-title {
+		font-size: 1.4vh;
+		color: #f39c12;
+		margin-bottom: 1vh;
+		font-weight: bold;
+	}
+
+	.keybind-prompt-feature {
+		font-size: 1.2vh;
+		color: #e74c3c;
+		margin-bottom: 1.5vh;
+		font-weight: 500;
+	}
+
+	.keybind-prompt-instruction {
+		font-size: 1.1vh;
+		color: #ccc;
+		margin-bottom: 1vh;
+	}
+
+	.keybind-prompt-hint {
+		font-size: 1vh;
+		color: #888;
+	}
+
+	/* Keybind selector styles */
+	.keybind-selector-container {
+		position: fixed;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		z-index: 10001;
+		width: 45vh;
+		max-height: 60vh;
+	}
+
+	.keybind-selector-box {
+		background: #000000f0;
+		border: 0.2vh solid #3498db;
+		border-radius: 1vh;
+		color: white;
+		font-family: 'Segoe UI', sans-serif;
+		box-shadow: 0 1vh 3vh rgba(0, 0, 0, 0.8);
+		overflow: hidden;
+	}
+
+	.keybind-selector-header {
+		background: rgba(52, 152, 219, 0.2);
+		padding: 1.5vh;
+		text-align: center;
+		font-size: 1.3vh;
+		color: #3498db;
+		font-weight: bold;
+		border-bottom: 0.1vh solid #3498db;
+	}
+
+	.keybind-selector-list {
+		max-height: 40vh;
+		overflow-y: auto;
+		scrollbar-width: thin;
+		scrollbar-color: #3498db transparent;
+	}
+
+	.keybind-selector-item {
+		padding: 1.2vh 1.5vh;
+		border-bottom: 0.05vh solid rgba(255, 255, 255, 0.1);
+		cursor: pointer;
+		transition: background-color 0.2s ease;
+		display: flex;
+		align-items: center;
+		gap: 1vh;
+	}
+
+	.keybind-selector-item:hover {
+		background-color: rgba(52, 152, 219, 0.2);
+	}
+
+	.keybind-selector-item:last-child {
+		border-bottom: none;
+	}
+
+	.keybind-selector-icon {
+		color: #3498db;
+		font-size: 1.2vh;
+	}
+
+	.keybind-selector-text {
+		font-size: 1.1vh;
+		flex-grow: 1;
+	}
+
+	.keybind-selector-footer {
+		background: rgba(0, 0, 0, 0.8);
+		padding: 1vh 1.5vh;
+		text-align: center;
+		font-size: 1vh;
+		color: #888;
+		border-top: 0.1vh solid rgba(255, 255, 255, 0.1);
+	}
+
+	/* Ensure buttons in keybind selector look consistent */
+	.keybind-selector-item {
+		background: none;
+		border: none;
+		width: 100%;
+		text-align: left;
+	}
+</style>
+
+<!-- KEYBIND PROMPT -->
+{#if showKeybindPrompt}
+	<div class="keybind-prompt-container" transition:fade={{ duration: 200 }}>
+		<div class="keybind-prompt-box">
+			<div class="keybind-prompt-title">🔗 KEYBIND SETUP</div>
+			<div class="keybind-prompt-feature">{keybindFeatureName}</div>
+			<div class="keybind-prompt-instruction">Press any key to bind this feature</div>
+			<div class="keybind-prompt-hint">ESC to cancel</div>
+		</div>
+	</div>
+{/if}
+
+<!-- KEYBIND SELECTOR -->
+{#if showKeybindSelector}
+	<div class="keybind-selector-container" transition:fade={{ duration: 200 }}>
+		<div class="keybind-selector-box">
+			<div class="keybind-selector-header">Select Feature to Bind</div>
+			<div class="keybind-selector-list">
+				{#each getBindableFeatures(activeMenu) as feature}
+					<button
+						class="keybind-selector-item"
+						on:click={() => selectKeybindFeature(feature)}
+						type="button"
+						aria-label={`Select ${feature.name} for keybinding`}
+					>
+						<i class="ph ph-keyboard keybind-selector-icon"></i>
+						<span class="keybind-selector-text">{feature.name}</span>
+						<i class="ph ph-caret-right" style="font-size: 1vh; color: #888;"></i>
+					</button>
+				{/each}
+				{#if getBindableFeatures(activeMenu).length === 0}
+					<div class="keybind-selector-item" style="color: #888; font-style: italic;">
+						<i class="ph ph-warning keybind-selector-icon"></i>
+						<span class="keybind-selector-text">No bindable features available</span>
+					</div>
+				{/if}
+			</div>
+			<div class="keybind-selector-footer">
+				Click a feature to set up its keybind
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- TEXT INPUT DIALOG -->
+{#if showTextInput}
+	<div class="text-input-container" transition:fade={{ duration: 200 }}>
+		<div class="text-input-box">
+			<div class="text-input-title">{textInputQuestion}</div>
+			
+			<div class="text-input-field">
+				{#if textInputValue}
+					<span class="text-content">{textInputValue}</span><span class="cursor"></span>
+				{:else}
+					<span class="placeholder-text">{textInputPlaceholder}</span><span class="cursor"></span>
+				{/if}
+			</div>
+
+			<div class="text-input-info">
+				<span>{textInputValue.length}/{textInputMaxLength}</span>
+			</div>
+			
+			<div class="text-input-hint">
+				ENTER to confirm • ESC to cancel • CTRL+V to paste
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- NOTIFICATION UI -->
+<div class="notification-container">
+	{#each notifications as { id, message, type } (id)}
+		<div class="notification {type}" transition:fade>{message}</div>
+	{/each}
+</div>
+
+<!-- MAIN MENU UI -->
+{#if showing && !showTextInput && !showKeybindPrompt && !showKeybindSelector}
+	<div style="position: absolute; top: 50%; transform: translateY(-50%); left: {position == 'left' && '6.5vh' || position == 'right' && 'calc(100% - 41vh)'}; transition: 0.5s; font-family: Arial, sans-serif;" in:fade={{ duration: 200 }} out:fade={{ duration: 200 }}>
+		<div style="position: absolute; margin-left: 1.75vh; width: 33.5vh; background: #000000e5; border-radius: 1.5vh; box-shadow: 0 0 1vh rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; overflow: hidden; position: relative;">
+			<div style="position: relative; width: 100%; height: auto; max-height: 9.5vh; overflow: hidden;">
+				<img src="https://share.creavite.co/689a8f6e7845583fe8e6ad52.gif" alt="" style="width: 100%; height: auto; object-fit: cover; display: block;" />
+			</div>
+			<div style="background: rgba(0, 0, 0, 0.8); color: white; font-size: 1.1vh; padding: 0.7vh; font-weight: 400; text-align: center;">
+				Rico Menu
+				<div style="font-size: 0.8vh; color: #888; margin-top: 0.2vh;">F9 for keybind selector</div>
+			</div>
+			<div class="hide-scrollbar" style="max-height: 33.6vh;">
+				<div style="display: flex; flex-direction: column; gap: 0.6vh; position: relative;">
+					{#each activeMenu as option, index (option.label)}
+						{@const icon = option.icon}
+
+						<div
+							bind:this={itemRefs[index]}
+							class="{index == current ? 'active' : ''}"
+							style="padding: 1.05vh 1.4vh; color: white; justify-content: space-between; display: flex; align-items: center; font-family: 'Segoe UI', sans-serif; font-size: 1.4vh; gap: 1vh; font-weight: 400; cursor: pointer; transition: background 0.2s ease-in-out, box-shadow 0.2s ease-in-out; {index == current ? 'background-color: #8B0000; box-shadow: inset 0 0 0 0.15vh #e74c3c;' : ''}"
+						>
+							{#if icon}
+								<i class={`ph ${icon}`} style="font-size: 1.3vh;"></i>
+							{/if}
+
+							<span style="flex-grow: 1; text-align: left; font-size: 1.2vh;">{option.label}</span>
+
+							<!-- Keybind indicator -->
+							{#if option.canBind}
+								<i class="ph ph-keyboard" style="font-size: 1vh; color: #3498db; margin-right: 0.5vh;" title="This feature can be bound to a key"></i>
+							{/if}
+
+							{#if option.type == 'submenu'}
+								<i class="ph ph-caret-right" style="font-size: 1.2vh;"></i>
+							{:else if option.type == 'checkbox'}
+								<div style="
+									width: 3vh;
+									height: 1.5vh;
+									background-color: {option.checked ? '#e74c3c' : '#555'};
+									border-radius: 1vh;
+									position: relative;
+									transition: background-color 0.2s ease-in-out;
+								">
+									<div style="
+										position: absolute;
+										width: 1.1vh;
+										height: 1.1vh;
+										border-radius: 50%;
+										background: white;
+										top: 0.2vh;
+										left: 0.2vh;
+										transition: transform 0.2s ease-in-out;
+										transform: {option.checked ? 'translateX(1.45vh)' : 'translateX(0)'};
+									"></div>
+								</div>
+							{:else if option.type == 'slider'}
+								<div style="
+									width: 10vh;
+									height: 1.2vh;
+									background-color: rgba(0, 0, 0, 0.4);
+									border-radius: 0.75vh;
+									display: flex;
+									align-items: center;
+									position: relative;
+								">
+									<div style="
+										height: 100%;
+										background-color: #e74c3c;
+										border-radius: 0.75vh;
+										width: {((option.value && option.min && option.value - option.min) ?? option.min) / ((option.max ?? 100) - (option.min ?? 0)) * 100}%;
+									"></div>
+									<div style="
+										position: absolute;
+										width: 100%;
+										text-align: center;
+										font-size: 0.8vh;
+										font-weight: 400;
+										color: white;
+										pointer-events: none;
+									">{option.value ?? option.min}</div>
+								</div>
+							{:else if option.type == 'scroll'}
+								<div style="position: relative; display: block; width: auto;">
+									<i class="ph ph-caret-left" style="font-size: 1vh;"></i>
+									<span style="position: relative; display: inline-block; font-size: 1.2vh; top: -0.1vh;">{option.options[option.selected && option.selected -1 || 0].label}</span>
+									<i class="ph ph-caret-right" style="font-size: 1vh;"></i>
+								</div>
+							{:else if option.type == 'input'}
+								<div style="
+									background: rgba(0, 0, 0, 0.4);
+									border: 0.1vh solid #555;
+									border-radius: 0.5vh;
+									padding: 0.8vh 1.2vh;
+									font-size: 1.2vh;
+									max-width: 12vh;
+									overflow: hidden;
+									text-overflow: ellipsis;
+									white-space: nowrap;
+									display: flex;
+									align-items: center;
+									gap: 0.5vh;
+								">
+									<i class="ph ph-keyboard" style="font-size: 1vh;"></i>
+									<span style="color: {option.value ? 'white' : '#888'}; font-style: {option.value ? 'normal' : 'italic'};">
+										{option.value || option.placeholder || 'Enter text...'}
+									</span>
+								</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			</div>
+			<div style="background: rgba(0, 0, 0, 0.8); color: white; font-size: 1.1vh; padding: 0.9vh; display: flex; justify-content: space-between; align-items: center;">
+				Version: Beta | Rico Menu <span style="font-weight: 400;">{current + 1}/{activeMenu.length}</span>
+			</div>
+		</div>
+	</div>
+{/if}
